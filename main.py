@@ -4,19 +4,6 @@ from openpyxl import load_workbook #подключение библиотеки 
 import re #подключение библиотеки для работы с текстом
 from urllib import request
 
-#объявление переменных для ИНН, названия компании, номера телефона и электронной почты
-capcha = ''
-HEADERS = {}
-PHONEBD = ''
-INN = ''
-NAME = ''
-PHONE = ''
-EMAIL = ''
-URL = ''
-FIRSTURL = ''
-#обращение к базе данных excel
-wbopen = load_workbook(filename='finblock.xlsx', data_only=True)
-sheet = wbopen['Лист1']
 
 def get_html(url, params=None):
     r = requests.get(url, headers=HEADERS, params=params)
@@ -27,20 +14,21 @@ def get_content_first(html):
     soup = BeautifulSoup(html, 'html.parser')
 
     items = soup.find_all('div', class_='content')
-    link = {'link': ''}
+    link = {'link': None}
 
     for item in items:
         try:
             link.update({
                 'link': item.find('div', class_='org_list').find('a').get('href')
             })
+            global URL
+            URL = URL + link['link']
 
-        except: #если поиск не дает результатов, печатается 'Не найдено'
+        except AttributeError: #если поиск не дает результатов, печатается 'Не найдено'
             try:
                 images = soup.findAll('img') #поиск img в html страницы
-                for image in images:
-                    print(image['src']) #поиск scr для формирования ссылки капчи
-                    global URL, capcha
+                for image in images: #поиск scr для формирования ссылки капчи
+                    global capcha
                     capcha = URL + image['src'] #формируем ссылку на капчу
                     print('Возможно, капча! Скачиваем файл..')
                     request.urlretrieve(capcha, 'out.jpg') #скачиваем капчу
@@ -70,22 +58,13 @@ def get_content_first(html):
                     incapcha = input('Введите код с картинки: ')
                     data['keystring'] = incapcha
                     z = s.post('https://www.list-org.com/bot', data=data) #отправка данных на сайт
-
                     return z
-
-            except: #в ином случае выведет соответствующее сообщение
+            except AttributeError: #в ином случае выведет соответствующее сообщение
                 print('Не найдено')
 
-#получение ответа поиска по сайту
-def open_first(FIRSTURL):
-    html = get_html(FIRSTURL)
-    if html.status_code == 200:
-        get_content_first(html.text)
-    else:
-        print('Ошибка')
-
 #если в поиске выдало результат, приступаем к проверке внутри найденной страницы
-def get_content_second(html):
+def get_content_second(html2):
+    html = html2
     soup = BeautifulSoup(html, 'html.parser')
     items = soup.find_all('div', class_='content')
     for item in items:
@@ -93,17 +72,17 @@ def get_content_second(html):
         global INN, NAME, PHONE, EMAIL
         try:
             NAME = item.find('div', class_='c2m').find('a', class_='upper').get_text(),
-        except:
+        except AttributeError:
             NAME = 'Пусто'
         try:
             PHONE = item.find('div', class_='c2m').findNext('div', class_='c2m').find('a',
                                                                                        class_='nwra lbs64').get_text(),
-        except:
+        except AttributeError:
             PHONE = 'Пусто'
         try:
             INN = item.find('div', class_='c2m').findNext('div', class_='c2m').findNext('div', class_='c2m').find(
-                'p').get_text(),
-        except:
+                                                                                                        'p').get_text(),
+        except AttributeError:
             INN = 'Пусто'
 
         try:
@@ -112,35 +91,46 @@ def get_content_second(html):
         except AttributeError:
             EMAIL = 'Пусто'
 
-def open_second(URL):
-    html = get_html(URL)
+def open(FIRSTURL):
+    html = get_html(FIRSTURL)
     if html.status_code == 200:
-        get_content_second(html.text)
+        get_content_first(html.text)
+        global URL
+        html2 = get_html(URL)
+        if html2.status_code == 200:
+            get_content_second(html2.text)
+        else:
+            print('Ошибка 02')
     else:
-        print('Ошибка')
+        print('Ошибка 01')
 
-#цикл, который беребирает ИНН и дает возможность выбрать диапазон поиска
-def cycle():
-    q = int(input('С какой строки начать проверку? '))
-    o = input('До какого числа хотите проверить? ')
-    while q < int(o):
+if __name__ == '__main__':
+    capcha = ''
+    #обращение к базе данных excel
+    wbopen = load_workbook(filename='finblock.xlsx', data_only=True)
+    sheet = wbopen['Лист1']
+    HEADERS = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.135 Safari/537.36',
+                       'accept': '*/*'}  # заголовки для того, чтобы посылаемый запрос выдавал нас за реального пользователя
+    try:
+        q = int(input('С какой строки начать проверку? '))
+    except ValueError:
+        q = 5
+        print('Введено не число! Используется значение по умолчанию: ', q)
+    try:
+        o = int(input('До какого числа хотите проверить? '))
+    except ValueError:
+        o = q + 50
+        print('Введено не число! Используется значение по умолчанию: ', o)
 
+    #цикл, который беребирает ИНН и дает возможность выбрать диапазон поиска
+    while q < o:
+        next = q + 1
         q = str(q)
-
         form = sheet['A'+q].value
-        print(form)
 
-        global INN, NAME, PHONE, PHONEBD, EMAIL, HEADERS, FIRSTURL, URL
-        FIRSTURL = 'https://www.list-org.com/search?type=inn&val=' + form  # FIRSTURL для сравнения ИНН по поиску
+        FIRSTURL = 'https://www.list-org.com/search?type=inn&val=' + form  #FIRSTURL для сравнения ИНН по поиску
         URL = 'https://www.list-org.com'  # URL для дальнейшей работы с ссылками
-        HEADERS = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.135 Safari/537.36',
-                   'accept': '*/*'}  # заголовки для того, чтобы посылаемый запрос выдавал нас за реального пользователя
-
-        print(HEADERS)
-        print(FIRSTURL)
-
-        open_first(FIRSTURL)
-        open_second(URL)
+        open(FIRSTURL)
         # приводим данные к строковому виду
         INN = str(INN)
         PHONE = str(PHONE)
@@ -152,24 +142,27 @@ def cycle():
         NAME = re.sub(r"[()':]", "", NAME)
         EMAIL = re.sub(r"[()': ]", "", EMAIL)
         # записываем телефон и email напротив исследуемого ИНН
-        NEXT = int(q) + 1
-        NEXT = str(NEXT)
-        sheet['G' + NEXT].value = PHONE
-        sheet['H' + NEXT].value = EMAIL
-        PHONEBD = sheet['E' + str(q)].value
+        next = str(next)
+        sheet[f'G{next}'].value = PHONE
+        sheet[f'H{next}'].value = EMAIL
+        PHONEBD = sheet[f'E{q}'].value
         PHONEBD = re.sub(r"[()', +-]", "", PHONEBD)
 
-
         if PHONE == 'Пусто':  # проверка на наличие номера на list org
-            sheet['J' + NEXT] = 'Номер не найден'
+            sheet['J' + next] = 'Номер не найден'
         else:  # если номер есть, сверяется номер с базой данных и данными с list org
             if PHONEBD[6:10] == PHONE[6:10]:
-                sheet['J' + NEXT] = 'Одинаковый номер'
+                sheet['J' + next] = 'Одинаковый номер'
             else:
-                sheet['J' + NEXT] = 'Номер изменен'
+                sheet['J' + next] = 'Номер изменен'
         q = int(q) + 1
-        print(q)
+        # очищает значения телефона БД, ИНН, названия компании, телефона с list-org и email
+        PHONEBD = ''
+        INN = ''
+        NAME = ''
+        PHONE = ''
+        EMAIL = ''
         print('Далее.. ')
-cycle()
-wbopen.save('gotovo.xlsx') #записываем данные в новый файл excel
-print('Готово!')
+
+    wbopen.save('gotovo.xlsx') #записываем данные в новый файл excel
+    print('Готово!')
